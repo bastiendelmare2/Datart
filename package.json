@@ -7,6 +7,7 @@
     "build": "node scripts/web-build.mjs",
     "desktop:dev": "node scripts/desktop-dev.mjs",
     "desktop:build": "node scripts/desktop-build.mjs",
+    "release:prepare": "node scripts/release.mjs",
     "start": "next start",
     "lint": "eslint .",
     "tauri": "tauri"

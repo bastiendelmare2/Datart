@@ -2,6 +2,23 @@
 
 Use this same process for every update.
 
+## Quick automated flow (recommended)
+
+1. Prepare release locally (version bump + commit + tag + push):
+- `npm run release:prepare -- X.Y.Z`
+
+2. GitHub Actions builds and uploads desktop installers automatically:
+- Workflow: `.github/workflows/release-desktop.yml`
+- Triggered by tag push `v*`.
+- Assets are attached to the GitHub Release for that tag.
+
+3. Share this permanent download URL:
+- `https://github.com/bastiendelmare2/Datart/releases/latest`
+
+## Manual fallback
+
+If GitHub Actions is unavailable, use the previous manual process:
+
 1. Bump versions consistently:
 - package.json
 - src-tauri/Cargo.toml
