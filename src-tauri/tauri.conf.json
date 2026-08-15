@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Datart",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "identifier": "com.datart.desktop",
   "build": {
     "beforeDevCommand": "node scripts/web-dev.mjs",
@@ -26,6 +26,9 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all"
+    "targets": "all",
+    "icon": [
+      "icons/icon.ico"
+    ]
   }
 }
