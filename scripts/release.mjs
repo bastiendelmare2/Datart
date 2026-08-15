@@ -20,7 +20,7 @@ const tauriConfPath = join(root, "src-tauri", "tauri.conf.json");
 const cargoTomlPath = join(root, "src-tauri", "Cargo.toml");
 
 function run(command, args) {
-  const result = spawnSync(command, args, { stdio: "inherit", shell: true });
+  const result = spawnSync(command, args, { stdio: "inherit" });
   if ((result.status ?? 1) !== 0) {
     process.exit(result.status ?? 1);
   }
