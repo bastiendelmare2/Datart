@@ -1,6 +1,6 @@
 [package]
 name = "datart"
-version = "0.1.1"
+version = "0.1.2"
 description = "Tri local de fichiers Excel"
 authors = ["Datart"]
 edition = "2021"
