@@ -17,6 +17,9 @@ permissions:
 jobs:
   release-windows:
     runs-on: windows-latest
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
     steps:
       - name: Checkout
@@ -53,6 +56,14 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Check Tauri signing secret
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace("${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}")) {
+            Write-Error "Missing GitHub secret TAURI_SIGNING_PRIVATE_KEY. Generate a Tauri signing key and add it in repository secrets."
+            exit 1
+          }
 
       - name: Build desktop
         run: npm run desktop:build
