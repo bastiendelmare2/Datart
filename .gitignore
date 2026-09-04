@@ -5,3 +5,6 @@ src-tauri/target/
 .venv/
 *.log
 .DS_Store
+
+# Clés de signature de mise à jour (NE JAMAIS committer)
+*.key

@@ -42,5 +42,5 @@ If GitHub Actions is unavailable, use the previous manual process:
 - Mark as latest stable release
 
 Notes:
-- Auto-update is not enabled by default. Users manually install the new release.
-- If something fails, verify Rust/Cargo and rebuild desktop before publishing.
+- Auto-update is enabled for signed desktop releases via `latest.json`.
+- If something fails, verify Rust/Cargo, the updater signing secrets, and rebuild desktop before publishing.

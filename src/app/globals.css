@@ -68,6 +68,16 @@ main[data-theme="night"] {
 .local-badge { display: flex; align-items: center; gap: 8px; color: #f3eefc; font-size: 12px; }
 .local-badge span { width: 7px; height: 7px; border-radius: 50%; background: #98ffd3; box-shadow: 0 0 0 3px #98ffd333; }
 
+.update-banner { display: flex; align-items: center; gap: 14px; padding: 12px 22px; background: linear-gradient(120deg, var(--accent-2), var(--accent-3)); color: #fff; border-bottom: 1px solid var(--line); }
+.update-banner.error { background: linear-gradient(120deg, #a62f22, #7a2f71); }
+.update-banner-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.update-banner-text strong { font-size: 13px; }
+.update-banner-text span { font-size: 11px; color: #f0eaff; margin-top: 2px; }
+.update-banner-actions { display: flex; align-items: center; gap: 8px; }
+.update-banner-actions .icon-button { color: #fff; }
+.update-install { display: inline-flex; align-items: center; gap: 6px; border: 0; background: #fff; color: var(--accent-2); font-size: 12px; font-weight: 700; padding: 8px 12px; }
+.update-progress-pill { font-size: 12px; font-weight: 700; background: #ffffff2e; padding: 6px 12px; border-radius: 12px; }
+
 .mode-switch { padding: 12px 22px; display: flex; gap: 10px; background: #f2ebff; border-bottom: 1px solid var(--line); }
 .mode-switch button {
   border: 1px solid #d2c5f0;

@@ -2,6 +2,7 @@
 
 import {
   AlertTriangle,
+  ArrowUpCircle,
   BarChart3,
   Check,
   ChevronRight,
@@ -12,6 +13,7 @@ import {
   Link2,
   Moon,
   Plus,
+  RotateCw,
   Save,
   Sigma,
   SlidersHorizontal,
@@ -44,6 +46,7 @@ import {
   importWorkbook,
   splitTerms,
 } from "@/lib/excel";
+import { checkForUpdate, downloadAndInstallUpdate, UpdateInfo } from "@/lib/updater";
 
 type FileEntry = FileSystemFileEntry & { file: (callback: (file: File) => void) => void };
 type DirectoryEntry = FileSystemDirectoryEntry & {
@@ -118,6 +121,11 @@ export default function Home() {
   const [columnConfigName, setColumnConfigName] = useState("");
   const [filterConfigs, setFilterConfigs] = useState<SavedFilterConfig[]>([]);
   const [columnConfigs, setColumnConfigs] = useState<SavedColumnConfig[]>([]);
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<"idle" | "installing" | "error">("idle");
+  const [updateProgress, setUpdateProgress] = useState(0);
+  const [updateError, setUpdateError] = useState("");
+  const [updateDismissed, setUpdateDismissed] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -139,6 +147,26 @@ export default function Home() {
   useEffect(() => {
     localStorage.setItem(COLUMN_CONFIG_STORAGE, JSON.stringify(columnConfigs));
   }, [columnConfigs]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    checkForUpdate()
+      .then((result) => {
+        if (!cancelled && result.available) {
+          setUpdateInfo(result.info);
+          setUpdateDismissed(false);
+        }
+      })
+      .catch((error: unknown) => {
+        const detail = error instanceof Error ? error.message : "erreur inconnue";
+        console.warn(`La vérification des mises à jour a échoué: ${detail}`);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const triTables = useMemo(() => applyColumnEdits(sourceTables, columnEdits), [sourceTables, columnEdits]);
   const triAvailability = useMemo(() => getColumnAvailability(triTables), [triTables]);
@@ -433,6 +461,26 @@ export default function Home() {
     setDataRevision((current) => current + 1);
   }
 
+  async function installUpdate() {
+    setUpdateStatus("installing");
+    setUpdateError("");
+    setUpdateProgress(0);
+
+    try {
+      await downloadAndInstallUpdate((progress) => {
+        if (progress.status === "downloading" && progress.total) {
+          setUpdateProgress(Math.round((progress.downloaded / progress.total) * 100));
+        } else if (progress.status === "installing") {
+          setUpdateProgress(100);
+        }
+      });
+    } catch (updateException) {
+      const detail = updateException instanceof Error ? updateException.message : "erreur inconnue";
+      setUpdateError(detail);
+      setUpdateStatus("error");
+    }
+  }
+
   function runAnalysis() {
     if (!analysisColumns.length) return;
     setAnalysisRequest({
@@ -461,6 +509,36 @@ export default function Home() {
           <div className="local-badge"><span /> Données sur cet appareil</div>
         </div>
       </header>
+
+      {updateInfo && !updateDismissed && (
+        <div className={`update-banner ${updateStatus === "error" ? "error" : ""}`} role="status">
+          <ArrowUpCircle size={18} />
+          <div className="update-banner-text">
+            <strong>Nouvelle version disponible : {updateInfo.version}</strong>
+            <span>
+              {updateStatus === "installing"
+                ? `Téléchargement… ${updateProgress}%`
+                : updateStatus === "error"
+                  ? `Échec de la mise à jour : ${updateError}`
+                  : `Version actuelle ${updateInfo.currentVersion}. L'application redémarrera après l'installation.`}
+            </span>
+          </div>
+          <div className="update-banner-actions">
+            {updateStatus === "installing" ? (
+              <span className="update-progress-pill">{updateProgress}%</span>
+            ) : (
+              <>
+                <button className="update-install" onClick={installUpdate}>
+                  <RotateCw size={15} /> {updateStatus === "error" ? "Réessayer" : "Mettre à jour"}
+                </button>
+                <button className="icon-button" title="Plus tard" onClick={() => setUpdateDismissed(true)}>
+                  <X size={18} />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="mode-switch" role="tablist" aria-label="Mode de travail">
         <button role="tab" aria-selected={mode === "tri"} className={mode === "tri" ? "active" : ""} onClick={() => setMode("tri")}>Mode Tri / Nettoyage</button>
