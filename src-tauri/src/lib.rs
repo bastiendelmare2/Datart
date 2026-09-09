@@ -4,11 +4,20 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
             #[cfg(desktop)]
-            app.handle()
-                .plugin(tauri_plugin_updater::Builder::new().build())?;
-            let _ = app;
+            {
+                match tauri_plugin_updater::Builder::new().build() {
+                    Ok(plugin) => {
+                        if let Err(error) = app.handle().plugin(plugin) {
+                            eprintln!("Datart: updater plugin disabled (registration failed): {error}");
+                        }
+                    }
+                    Err(error) => {
+                        eprintln!("Datart: updater plugin disabled (build failed): {error}");
+                    }
+                }
+            }
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running Datart");
+        .unwrap_or_else(|error| panic!("error while running Datart: {error}"));
 }
