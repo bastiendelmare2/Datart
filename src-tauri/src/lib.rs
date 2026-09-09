@@ -5,15 +5,9 @@ pub fn run() {
         .setup(|app| {
             #[cfg(desktop)]
             {
-                match tauri_plugin_updater::Builder::new().build() {
-                    Ok(plugin) => {
-                        if let Err(error) = app.handle().plugin(plugin) {
-                            eprintln!("Datart: updater plugin disabled (registration failed): {error}");
-                        }
-                    }
-                    Err(error) => {
-                        eprintln!("Datart: updater plugin disabled (build failed): {error}");
-                    }
+                let plugin = tauri_plugin_updater::Builder::new().build();
+                if let Err(error) = app.handle().plugin(plugin) {
+                    eprintln!("Datart: updater plugin disabled (registration failed): {error}");
                 }
             }
             Ok(())
