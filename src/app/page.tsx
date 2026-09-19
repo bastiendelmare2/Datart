@@ -24,8 +24,10 @@ import {
 } from "lucide-react";
 import {
   ChangeEvent,
+  Dispatch,
   DragEvent,
   KeyboardEvent,
+  SetStateAction,
   useEffect,
   useMemo,
   useRef,
@@ -35,9 +37,11 @@ import {
   analyzeRowsWordCloud,
   analyzeTextCorpus,
   applyColumnEdits,
+  ColumnAvailability,
   ColumnEdits,
   exportRows,
   filterTables,
+  FilterAction,
   FilterRule,
   getColumnAvailability,
   getColumnExamples,
@@ -45,6 +49,7 @@ import {
   ImportedTable,
   importWorkbook,
   splitTerms,
+  TermImpact,
 } from "@/lib/excel";
 import { checkForUpdate, downloadAndInstallUpdate, UpdateInfo } from "@/lib/updater";
 
@@ -53,8 +58,9 @@ type DirectoryEntry = FileSystemDirectoryEntry & {
   createReader: () => { readEntries: (callback: (entries: FileSystemEntry[]) => void) => void };
 };
 
-type AppMode = "tri" | "analyse";
+type AppMode = "tri" | "extraction" | "analyse";
 type ThemeMode = "day" | "night";
+type TermSort = "alpha" | "impact";
 
 interface ImportProgress {
   loaded: number;
@@ -87,13 +93,16 @@ interface SavedColumnConfig {
 
 const FILTER_CONFIG_STORAGE = "datart.filterConfigs.v1";
 const COLUMN_CONFIG_STORAGE = "datart.columnConfigs.v1";
+const IGNORED_WORDS_STORAGE = "datart.ignoredWords.v1";
 
-const createRule = (): FilterRule => ({
+const createRule = (action: FilterAction = "exclure"): FilterRule => ({
   id: crypto.randomUUID(),
+  name: "",
   column: "",
   terms: "",
   caseSensitive: false,
   matchDerivatives: true,
+  action,
 });
 
 export default function Home() {
@@ -102,7 +111,9 @@ export default function Home() {
   const [sourceTables, setSourceTables] = useState<ImportedTable[]>([]);
   const [columnEdits, setColumnEdits] = useState<ColumnEdits>({});
   const [rules, setRules] = useState<FilterRule[]>([createRule()]);
-  const [pendingTerms, setPendingTerms] = useState<Record<string, string>>({});
+  const [extractionRules, setExtractionRules] = useState<FilterRule[]>([createRule("extraire")]);
+  const [ignoredWords, setIgnoredWords] = useState<string[]>([]);
+  const [termSort, setTermSort] = useState<TermSort>("alpha");
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -135,6 +146,8 @@ export default function Home() {
       if (storedFilterConfigs) setFilterConfigs(JSON.parse(storedFilterConfigs));
       const storedColumnConfigs = localStorage.getItem(COLUMN_CONFIG_STORAGE);
       if (storedColumnConfigs) setColumnConfigs(JSON.parse(storedColumnConfigs));
+      const storedIgnoredWords = localStorage.getItem(IGNORED_WORDS_STORAGE);
+      if (storedIgnoredWords) setIgnoredWords(JSON.parse(storedIgnoredWords));
     } catch {
       // Ignore corrupted localStorage data and keep defaults.
     }
@@ -147,6 +160,10 @@ export default function Home() {
   useEffect(() => {
     localStorage.setItem(COLUMN_CONFIG_STORAGE, JSON.stringify(columnConfigs));
   }, [columnConfigs]);
+
+  useEffect(() => {
+    localStorage.setItem(IGNORED_WORDS_STORAGE, JSON.stringify(ignoredWords));
+  }, [ignoredWords]);
 
   useEffect(() => {
     let cancelled = false;
@@ -172,11 +189,15 @@ export default function Home() {
   const triAvailability = useMemo(() => getColumnAvailability(triTables), [triTables]);
   const analysisAvailability = useMemo(() => getColumnAvailability(sourceTables), [sourceTables]);
 
-  const missingColumns = (mode === "tri" ? triAvailability : analysisAvailability).filter(
+  const missingColumns = (mode === "analyse" ? analysisAvailability : triAvailability).filter(
     (item) => item.missingFrom.length > 0,
   );
 
   const result = useMemo(() => filterTables(triTables, rules), [triTables, rules]);
+  const extractionResult = useMemo(
+    () => filterTables(triTables, extractionRules),
+    [triTables, extractionRules],
+  );
 
   const analysis = useMemo(() => {
     if (!analysisRequest) return null;
@@ -185,8 +206,9 @@ export default function Home() {
       minLength: analysisRequest.minLength,
       topN: analysisRequest.topN,
       excludeStopWords: true,
+      ignoreWords: ignoredWords,
     });
-  }, [sourceTables, analysisRequest]);
+  }, [sourceTables, analysisRequest, ignoredWords]);
 
   const normalizedSelectedColumns = [...analysisColumns].sort();
   const normalizedRequestColumns = analysisRequest ? [...analysisRequest.columns].sort() : [];
@@ -202,18 +224,6 @@ export default function Home() {
     analysisRequest.minLength !== analysisMinLength ||
     analysisRequest.topN !== analysisTopN;
 
-  const ruleTermImpacts = useMemo(() => {
-    const impacts = new Map<string, ReturnType<typeof getRuleTermImpacts>>();
-    for (const rule of rules) impacts.set(rule.id, getRuleTermImpacts(triTables, rule));
-    return impacts;
-  }, [triTables, rules]);
-
-  const ruleExamples = useMemo(() => {
-    const examples = new Map<string, string[]>();
-    for (const rule of rules) examples.set(rule.id, getColumnExamples(triTables, rule.column, 3));
-    return examples;
-  }, [triTables, rules]);
-
   const postFilterColumns = useMemo(
     () => Array.from(new Set(rules.map((rule) => rule.column).filter(Boolean))),
     [rules],
@@ -225,8 +235,25 @@ export default function Home() {
         minLength: 3,
         topN: 45,
         excludeStopWords: true,
+        ignoreWords: ignoredWords,
       }),
-    [result.rows, postFilterColumns],
+    [result.rows, postFilterColumns, ignoredWords],
+  );
+
+  const extractionColumns = useMemo(
+    () => Array.from(new Set(extractionRules.map((rule) => rule.column).filter(Boolean))),
+    [extractionRules],
+  );
+
+  const extractionWords = useMemo(
+    () =>
+      analyzeRowsWordCloud(extractionResult.rows, extractionColumns, {
+        minLength: 3,
+        topN: 45,
+        excludeStopWords: true,
+        ignoreWords: ignoredWords,
+      }),
+    [extractionResult.rows, extractionColumns, ignoredWords],
   );
 
   const sourceColumns = useMemo(
@@ -275,7 +302,7 @@ export default function Home() {
     setDataRevision((current) => current + 1);
 
     const hasDifferences = getColumnAvailability(
-      mode === "tri" ? applyColumnEdits(combined, columnEdits) : combined,
+      mode === "analyse" ? combined : applyColumnEdits(combined, columnEdits),
     ).some((column) => column.missingFrom.length);
     if (hasDifferences) setShowDifferences(true);
 
@@ -304,39 +331,6 @@ export default function Home() {
     event.target.value = "";
   }
 
-  function updateRule(id: string, patch: Partial<FilterRule>) {
-    setRules((current) => current.map((rule) => (rule.id === id ? { ...rule, ...patch } : rule)));
-  }
-
-  function setRuleTerms(ruleId: string, terms: string[]) {
-    updateRule(ruleId, { terms: terms.join("\n") });
-  }
-
-  function addRuleTerm(ruleId: string) {
-    const value = (pendingTerms[ruleId] ?? "").trim();
-    if (!value) return;
-    const rule = rules.find((item) => item.id === ruleId);
-    if (!rule) return;
-
-    const nextTerms = [...splitTerms(rule.terms), value];
-    setRuleTerms(ruleId, nextTerms);
-    setPendingTerms((current) => ({ ...current, [ruleId]: "" }));
-  }
-
-  function removeRuleTerm(ruleId: string, termIndex: number) {
-    const rule = rules.find((item) => item.id === ruleId);
-    if (!rule) return;
-    const nextTerms = splitTerms(rule.terms).filter((_, index) => index !== termIndex);
-    setRuleTerms(ruleId, nextTerms);
-  }
-
-  function onRuleTermKeyDown(event: KeyboardEvent<HTMLInputElement>, ruleId: string) {
-    if (event.key === "Enter" || event.key === "," || event.key === ";") {
-      event.preventDefault();
-      addRuleTerm(ruleId);
-    }
-  }
-
   function removeFile(fileName: string) {
     setSourceTables((current) => current.filter((table) => table.fileName !== fileName));
     setDataRevision((current) => current + 1);
@@ -357,6 +351,14 @@ export default function Home() {
     });
 
     setRules((current) =>
+      current.map((rule) =>
+        rule.column === sourceColumn
+          ? { ...rule, column: trimmed || sourceColumn }
+          : rule,
+      ),
+    );
+
+    setExtractionRules((current) =>
       current.map((rule) =>
         rule.column === sourceColumn
           ? { ...rule, column: trimmed || sourceColumn }
@@ -454,7 +456,7 @@ export default function Home() {
     setSourceTables([]);
     setColumnEdits({});
     setRules([createRule()]);
-    setPendingTerms({});
+    setExtractionRules([createRule("extraire")]);
     setAnalysisColumns([]);
     setAnalysisColumnCandidate("");
     setAnalysisRequest(null);
@@ -542,19 +544,27 @@ export default function Home() {
 
       <div className="mode-switch" role="tablist" aria-label="Mode de travail">
         <button role="tab" aria-selected={mode === "tri"} className={mode === "tri" ? "active" : ""} onClick={() => setMode("tri")}>Mode Tri / Nettoyage</button>
+        <button role="tab" aria-selected={mode === "extraction"} className={mode === "extraction" ? "active" : ""} onClick={() => setMode("extraction")}>Mode Extraction</button>
         <button role="tab" aria-selected={mode === "analyse"} className={mode === "analyse" ? "active" : ""} onClick={() => setMode("analyse")}>Mode Analyse Textuelle</button>
       </div>
 
       <div className="workspace">
         <aside className="steps" aria-label="Progression">
-          <p className="eyebrow">{mode === "tri" ? "TRAITEMENT" : "ANALYSE"}</p>
+          <p className="eyebrow">{mode === "analyse" ? "ANALYSE" : mode === "extraction" ? "EXTRACTION" : "TRAITEMENT"}</p>
           <Step number="01" title="Importer" active={!sourceTables.length} done={sourceTables.length > 0} />
-          {mode === "tri" ? (
+          {mode === "tri" && (
             <>
               <Step number="02" title="Filtrer" active={sourceTables.length > 0} done={Boolean(rules.some((r) => r.column && splitTerms(r.terms).length))} />
               <Step number="03" title="Exporter" active={sourceTables.length > 0} done={false} />
             </>
-          ) : (
+          )}
+          {mode === "extraction" && (
+            <>
+              <Step number="02" title="Extraire" active={sourceTables.length > 0} done={Boolean(extractionRules.some((r) => r.column && splitTerms(r.terms).length))} />
+              <Step number="03" title="Exporter" active={sourceTables.length > 0} done={false} />
+            </>
+          )}
+          {mode === "analyse" && (
             <>
               <Step number="02" title="Choisir variables" active={sourceTables.length > 0} done={analysisColumns.length > 0} />
               <Step number="03" title="Corrélations" active={analysisColumns.length > 0} done={Boolean(analysisRequest && !analysisNeedsRun)} />
@@ -569,8 +579,8 @@ export default function Home() {
         <section className="content">
           <div className="title-row">
             <div>
-              <p className="eyebrow">{mode === "tri" ? "NOUVEAU TRAITEMENT" : "EXPLORATION"}</p>
-              <h1>{mode === "tri" ? "Préparer les données" : "Analyser les textes"}</h1>
+              <p className="eyebrow">{mode === "analyse" ? "EXPLORATION" : mode === "extraction" ? "EXTRACTION CIBLÉE" : "NOUVEAU TRAITEMENT"}</p>
+              <h1>{mode === "analyse" ? "Analyser les textes" : mode === "extraction" ? "Extraire une base" : "Préparer les données"}</h1>
             </div>
             {sourceTables.length > 0 && <button className="text-button" onClick={resetAll}>Tout effacer</button>}
           </div>
@@ -644,7 +654,7 @@ export default function Home() {
             )}
           </section>
 
-          {mode === "tri" && (
+          {(mode === "tri" || mode === "extraction") && (
             <section className={`panel columns-section ${!sourceTables.length ? "disabled" : ""}`}>
               <details className="columns-dropdown" open>
                 <summary>
@@ -746,80 +756,16 @@ export default function Home() {
                   )}
                 </div>
 
-                <div className="rules">
-                  {rules.map((rule, index) => {
-                    const terms = splitTerms(rule.terms);
-                    const impacts = ruleTermImpacts.get(rule.id) ?? [];
-                    const examples = ruleExamples.get(rule.id) ?? [];
-
-                    return (
-                      <div className="rule" key={rule.id}>
-                        <div className="rule-top">
-                          <strong>Règle {index + 1}</strong>
-                          {rules.length > 1 && <button className="icon-button" title="Supprimer la règle" onClick={() => setRules((current) => current.filter((item) => item.id !== rule.id))}><X size={17} /></button>}
-                        </div>
-
-                        <div className="rule-fields">
-                          <label>
-                            Variable
-                            <select value={rule.column} onChange={(event) => updateRule(rule.id, { column: event.target.value })}>
-                              <option value="">Choisir une variable…</option>
-                              {triAvailability.map((item) => (
-                                <option key={item.column} value={item.column}>
-                                  {item.column}{item.missingFrom.length ? ` (${item.presentIn}/${triTables.length})` : ""}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-
-                          <label>
-                            Ajouter un mot-clé à supprimer
-                            <div className="term-input-row">
-                              <input
-                                type="text"
-                                value={pendingTerms[rule.id] ?? ""}
-                                placeholder="ex. paysage"
-                                onChange={(event) => setPendingTerms((current) => ({ ...current, [rule.id]: event.target.value }))}
-                                onKeyDown={(event) => onRuleTermKeyDown(event, rule.id)}
-                              />
-                              <button type="button" onClick={() => addRuleTerm(rule.id)}><Plus size={14} /> Ajouter</button>
-                            </div>
-                          </label>
-                        </div>
-
-                        {rule.column && (
-                          <div className="rule-examples">
-                            <small>Exemples dans la base :</small>
-                            <div>
-                              {examples.length > 0 ? examples.map((example) => <span key={example}>{example}</span>) : <span>Aucun exemple non vide trouvé</span>}
-                            </div>
-                          </div>
-                        )}
-
-                        <div className="term-chips">
-                          {terms.length === 0 && <span className="chip-empty">Aucun mot ajouté pour l’instant.</span>}
-                          {terms.map((term, termIndex) => {
-                            const removedCount = impacts[termIndex]?.removedCount ?? 0;
-                            return (
-                              <button key={`${term}-${termIndex}`} className="term-chip" onClick={() => removeRuleTerm(rule.id, termIndex)} title="Retirer ce mot">
-                                <span>{term}</span>
-                                <small>{removedCount.toLocaleString("fr-FR")} ligne{removedCount > 1 ? "s" : ""}</small>
-                                <X size={13} />
-                              </button>
-                            );
-                          })}
-                        </div>
-
-                        <div className="toggles">
-                          <Toggle label="Ignorer la casse" checked={!rule.caseSensitive} onChange={(checked) => updateRule(rule.id, { caseSensitive: !checked })} />
-                          <Toggle label="Inclure les mots dérivés" checked={rule.matchDerivatives} onChange={(checked) => updateRule(rule.id, { matchDerivatives: checked })} />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <button className="add-rule" disabled={!triTables.length} onClick={() => setRules((current) => [...current, createRule()])}><Plus size={17} /> Ajouter une règle</button>
+                <RulesEditor
+                  rules={rules}
+                  setRules={setRules}
+                  tables={triTables}
+                  availability={triAvailability}
+                  termSort={termSort}
+                  setTermSort={setTermSort}
+                  showActionSelector
+                  addAction="exclure"
+                />
               </section>
 
               <section className={`export-band ${!triTables.length ? "disabled" : ""}`}>
@@ -833,6 +779,7 @@ export default function Home() {
 
               <section className={`panel post-filter-section ${!triTables.length ? "disabled" : ""}`}>
                 <div className="section-heading"><span>3</span><div><h2>Mots encore présents après filtrage</h2><p>Focus sur les variables ciblées par vos règles</p></div></div>
+                <IgnoredWordsEditor words={ignoredWords} setWords={setIgnoredWords} />
                 {postFilterColumns.length === 0 ? (
                   <p className="analysis-empty">Ajoutez au moins une règle avec une variable pour afficher ce nuage.</p>
                 ) : (
@@ -860,7 +807,75 @@ export default function Home() {
                 )}
               </section>
             </>
-          ) : (
+          )}
+
+          {mode === "extraction" && (
+            <>
+              <section className={`panel filter-section ${!triTables.length ? "disabled" : ""}`}>
+                <div className="section-heading"><span>2</span><div><h2>Règles d’extraction</h2><p>Seules les lignes correspondantes seront conservées dans la base extraite</p></div></div>
+
+                {triTables.length > 0 && missingColumns.length > 0 && (
+                  <button className="warning-banner" onClick={() => setShowDifferences(true)}>
+                    <AlertTriangle size={18} />
+                    <span><strong>{missingColumns.length} variable{missingColumns.length > 1 ? "s" : ""} non commune{missingColumns.length > 1 ? "s" : ""}</strong><small>Consulter le détail des écarts entre feuilles</small></span>
+                    <ChevronRight size={18} />
+                  </button>
+                )}
+
+                <RulesEditor
+                  rules={extractionRules}
+                  setRules={setExtractionRules}
+                  tables={triTables}
+                  availability={triAvailability}
+                  termSort={termSort}
+                  setTermSort={setTermSort}
+                  showActionSelector={false}
+                  addAction="extraire"
+                />
+              </section>
+
+              <section className={`export-band ${!triTables.length ? "disabled" : ""}`}>
+                <div>
+                  <p className="eyebrow">BASE EXTRAITE</p>
+                  <strong>{extractionResult.rows.length.toLocaleString("fr-FR")} lignes extraites</strong>
+                  <span>sur {extractionResult.totalCount.toLocaleString("fr-FR")} · {sourceFileNames.length} fichier{sourceFileNames.length > 1 ? "s" : ""}</span>
+                </div>
+                <button className="export-button" disabled={!triTables.length || extractionResult.rows.length === 0} onClick={() => exportRows(extractionResult.rows, "base_extraite.xlsx")}><Download size={19} /> Télécharger la base extraite .xlsx</button>
+              </section>
+
+              <section className={`panel post-filter-section ${!triTables.length ? "disabled" : ""}`}>
+                <div className="section-heading"><span>3</span><div><h2>Mots de la base extraite</h2><p>Nuage des variables ciblées par vos règles d’extraction</p></div></div>
+                <IgnoredWordsEditor words={ignoredWords} setWords={setIgnoredWords} />
+                {extractionColumns.length === 0 ? (
+                  <p className="analysis-empty">Ajoutez au moins une règle avec une variable pour afficher ce nuage.</p>
+                ) : (
+                  <div className="word-cloud fancy-cloud" aria-label="Nuage de mots de la base extraite">
+                    {extractionWords.map((item, index) => {
+                      const max = extractionWords[0]?.count ?? 1;
+                      const ratio = item.count / max;
+                      const size = 12 + ratio * 30;
+                      const rotate = (index % 2 === 0 ? 1 : -1) * (index % 5);
+                      return (
+                        <span
+                          key={item.word}
+                          style={{
+                            fontSize: `${size.toFixed(0)}px`,
+                            opacity: 0.54 + ratio * 0.46,
+                            transform: `rotate(${rotate}deg)`,
+                          }}
+                          title={`${item.word} (${item.count})`}
+                        >
+                          {item.word}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+            </>
+          )}
+
+          {mode === "analyse" && (
             <section className={`panel analysis-section ${!sourceTables.length ? "disabled" : ""}`}>
               <div className="section-heading"><span>2</span><div><h2>Analyse textuelle</h2><p>Corpus multi-variables avec corrélations et visualisations enrichies</p></div></div>
 
@@ -917,6 +932,8 @@ export default function Home() {
                 <button className="analysis-run" disabled={!sourceTables.length || analysisColumns.length === 0} onClick={runAnalysis}>Lancer l’analyse</button>
                 <small>Les stop words français sont automatiquement exclus des résultats.</small>
               </div>
+
+              <IgnoredWordsEditor words={ignoredWords} setWords={setIgnoredWords} />
 
               {analysisNeedsRun && <p className="analysis-empty">Cliquez sur « Lancer l’analyse » pour calculer les visualisations et corrélations.</p>}
 
@@ -1038,7 +1055,7 @@ export default function Home() {
             <div className="differences-list">
               {missingColumns.map((item) => (
                 <details key={item.column}>
-                  <summary><span>{item.column}</span><small>{item.presentIn} sur {mode === "tri" ? triTables.length : sourceTables.length} feuilles</small></summary>
+                  <summary><span>{item.column}</span><small>{item.presentIn} sur {mode === "analyse" ? sourceTables.length : triTables.length} feuilles</small></summary>
                   <ul>{item.missingFrom.map((source) => <li key={source}>{source}</li>)}</ul>
                 </details>
               ))}
@@ -1057,6 +1074,239 @@ function Step({ number, title, active, done }: { number: string; title: string; 
 
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
   return <label className="toggle"><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} /><span aria-hidden="true" /><strong>{label}</strong></label>;
+}
+
+function RulesEditor({
+  rules,
+  setRules,
+  tables,
+  availability,
+  termSort,
+  setTermSort,
+  showActionSelector,
+  addAction,
+}: {
+  rules: FilterRule[];
+  setRules: Dispatch<SetStateAction<FilterRule[]>>;
+  tables: ImportedTable[];
+  availability: ColumnAvailability[];
+  termSort: TermSort;
+  setTermSort: Dispatch<SetStateAction<TermSort>>;
+  showActionSelector: boolean;
+  addAction: FilterAction;
+}) {
+  const [pendingTerms, setPendingTerms] = useState<Record<string, string>>({});
+
+  const termImpacts = useMemo(() => {
+    const impacts = new Map<string, TermImpact[]>();
+    for (const rule of rules) impacts.set(rule.id, getRuleTermImpacts(tables, rule));
+    return impacts;
+  }, [tables, rules]);
+
+  const examplesByRule = useMemo(() => {
+    const examples = new Map<string, string[]>();
+    for (const rule of rules) examples.set(rule.id, getColumnExamples(tables, rule.column, 3));
+    return examples;
+  }, [tables, rules]);
+
+  function updateRule(id: string, patch: Partial<FilterRule>) {
+    setRules((current) => current.map((rule) => (rule.id === id ? { ...rule, ...patch } : rule)));
+  }
+
+  function setRuleTerms(ruleId: string, terms: string[]) {
+    updateRule(ruleId, { terms: terms.join("\n") });
+  }
+
+  function addRuleTerm(ruleId: string) {
+    const value = (pendingTerms[ruleId] ?? "").trim();
+    if (!value) return;
+    const rule = rules.find((item) => item.id === ruleId);
+    if (!rule) return;
+    setRuleTerms(ruleId, [...splitTerms(rule.terms), value]);
+    setPendingTerms((current) => ({ ...current, [ruleId]: "" }));
+  }
+
+  function removeRuleTerm(ruleId: string, termIndex: number) {
+    const rule = rules.find((item) => item.id === ruleId);
+    if (!rule) return;
+    setRuleTerms(ruleId, splitTerms(rule.terms).filter((_, index) => index !== termIndex));
+  }
+
+  function onRuleTermKeyDown(event: KeyboardEvent<HTMLInputElement>, ruleId: string) {
+    if (event.key === "Enter" || event.key === "," || event.key === ";") {
+      event.preventDefault();
+      addRuleTerm(ruleId);
+    }
+  }
+
+  const disabled = tables.length === 0;
+
+  return (
+    <>
+      <div className="rules-toolbar">
+        <label>
+          Trier les mots-clés
+          <select value={termSort} onChange={(event) => setTermSort(event.target.value as TermSort)}>
+            <option value="alpha">Ordre alphabétique</option>
+            <option value="impact">Nombre de lignes</option>
+          </select>
+        </label>
+      </div>
+
+      <div className="rules">
+        {rules.map((rule, index) => {
+          const terms = splitTerms(rule.terms);
+          const impacts = termImpacts.get(rule.id) ?? [];
+          const examples = examplesByRule.get(rule.id) ?? [];
+          const displayTerms = terms
+            .map((term, originalIndex) => ({
+              term,
+              originalIndex,
+              removedCount: impacts[originalIndex]?.removedCount ?? 0,
+            }))
+            .sort((a, b) =>
+              termSort === "impact"
+                ? b.removedCount - a.removedCount || a.term.localeCompare(b.term, "fr")
+                : a.term.localeCompare(b.term, "fr"),
+            );
+
+          return (
+            <div className="rule" key={rule.id}>
+              <div className="rule-top">
+                <input
+                  className="rule-name-input"
+                  type="text"
+                  value={rule.name}
+                  placeholder={`Règle ${index + 1}`}
+                  onChange={(event) => updateRule(rule.id, { name: event.target.value })}
+                />
+                {rules.length > 1 && <button className="icon-button" title="Supprimer la règle" onClick={() => setRules((current) => current.filter((item) => item.id !== rule.id))}><X size={17} /></button>}
+              </div>
+
+              {showActionSelector && (
+                <label className="rule-action">
+                  Action de la règle
+                  <select value={rule.action} onChange={(event) => updateRule(rule.id, { action: event.target.value as FilterAction })}>
+                    <option value="exclure">Supprimer les lignes correspondantes</option>
+                    <option value="extraire">Extraire (garder) les lignes correspondantes</option>
+                  </select>
+                </label>
+              )}
+
+              <div className="rule-fields">
+                <label>
+                  Variable
+                  <select value={rule.column} onChange={(event) => updateRule(rule.id, { column: event.target.value })}>
+                    <option value="">Choisir une variable…</option>
+                    {availability.map((item) => (
+                      <option key={item.column} value={item.column}>
+                        {item.column}{item.missingFrom.length ? ` (${item.presentIn}/${tables.length})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label>
+                  {addAction === "extraire" ? "Ajouter un mot-clé à extraire" : "Ajouter un mot-clé à supprimer"}
+                  <div className="term-input-row">
+                    <input
+                      type="text"
+                      value={pendingTerms[rule.id] ?? ""}
+                      placeholder="ex. paysage"
+                      onChange={(event) => setPendingTerms((current) => ({ ...current, [rule.id]: event.target.value }))}
+                      onKeyDown={(event) => onRuleTermKeyDown(event, rule.id)}
+                    />
+                    <button type="button" onClick={() => addRuleTerm(rule.id)}><Plus size={14} /> Ajouter</button>
+                  </div>
+                </label>
+              </div>
+
+              {rule.column && (
+                <div className="rule-examples">
+                  <small>Exemples dans la base :</small>
+                  <div>
+                    {examples.length > 0 ? examples.map((example) => <span key={example}>{example}</span>) : <span>Aucun exemple non vide trouvé</span>}
+                  </div>
+                </div>
+              )}
+
+              <div className="term-chips">
+                {displayTerms.length === 0 && <span className="chip-empty">Aucun mot ajouté pour l’instant.</span>}
+                {displayTerms.map(({ term, originalIndex, removedCount }) => (
+                  <button key={`${term}-${originalIndex}`} className="term-chip" onClick={() => removeRuleTerm(rule.id, originalIndex)} title="Retirer ce mot">
+                    <span>{term}</span>
+                    <small>{removedCount.toLocaleString("fr-FR")} ligne{removedCount > 1 ? "s" : ""}</small>
+                    <X size={13} />
+                  </button>
+                ))}
+              </div>
+
+              <div className="toggles">
+                <Toggle label="Ignorer la casse" checked={!rule.caseSensitive} onChange={(checked) => updateRule(rule.id, { caseSensitive: !checked })} />
+                <Toggle label="Inclure les mots dérivés" checked={rule.matchDerivatives} onChange={(checked) => updateRule(rule.id, { matchDerivatives: checked })} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <button className="add-rule" disabled={disabled} onClick={() => setRules((current) => [...current, createRule(addAction)])}><Plus size={17} /> Ajouter une règle</button>
+    </>
+  );
+}
+
+function IgnoredWordsEditor({
+  words,
+  setWords,
+}: {
+  words: string[];
+  setWords: Dispatch<SetStateAction<string[]>>;
+}) {
+  const [pending, setPending] = useState("");
+  const sortedWords = useMemo(() => [...words].sort((a, b) => a.localeCompare(b, "fr")), [words]);
+
+  function addWord() {
+    const value = pending.trim().toLocaleLowerCase("fr");
+    if (!value) return;
+    setWords((current) => (current.includes(value) ? current : [...current, value]));
+    setPending("");
+  }
+
+  function removeWord(word: string) {
+    setWords((current) => current.filter((item) => item !== word));
+  }
+
+  return (
+    <div className="config-box ignored-words">
+      <label>
+        Mots ignorés dans les nuages et l’analyse (les lignes sont conservées)
+        <div className="term-input-row">
+          <input
+            type="text"
+            value={pending}
+            placeholder="ex. statue, plâtre"
+            onChange={(event) => setPending(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === "," || event.key === ";") {
+                event.preventDefault();
+                addWord();
+              }
+            }}
+          />
+          <button type="button" onClick={addWord}><Plus size={14} /> Ignorer</button>
+        </div>
+      </label>
+      <div className="term-chips">
+        {sortedWords.length === 0 && <span className="chip-empty">Aucun mot ignoré pour l’instant.</span>}
+        {sortedWords.map((word) => (
+          <button key={word} className="term-chip" onClick={() => removeWord(word)} title="Ne plus ignorer ce mot">
+            <span>{word}</span>
+            <X size={13} />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 async function readEntry(entry: FileSystemEntry): Promise<File[]> {

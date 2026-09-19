@@ -263,6 +263,11 @@ select:focus, textarea:focus, input[type="number"]:focus, input[type="text"]:foc
 .rule-examples small { color: var(--muted); font-size: 10px; }
 .rule-examples > div { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; }
 .rule-examples span { border: 1px solid var(--line); background: var(--white); padding: 4px 7px; font-size: 10px; }
+.rules-toolbar { padding: 16px 22px 0; display: flex; justify-content: flex-end; }
+.rules-toolbar label { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 10px; font-weight: 700; min-width: 200px; }
+.rule-name-input { max-width: 260px; font-weight: 700; }
+.rule-action { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 10px; font-weight: 700; margin-bottom: 12px; }
+.ignored-words { margin: 14px 22px 0; }
 .toggles { display: flex; gap: 22px; margin-top: 12px; }
 .toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .toggle input { position: absolute; opacity: 0; }

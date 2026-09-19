@@ -11,12 +11,16 @@ export interface ImportedTable {
   rows: DataRow[];
 }
 
+export type FilterAction = "exclure" | "extraire";
+
 export interface FilterRule {
   id: string;
+  name: string;
   column: string;
   terms: string;
   caseSensitive: boolean;
   matchDerivatives: boolean;
+  action: FilterAction;
 }
 
 export interface ColumnAvailability {
@@ -89,6 +93,7 @@ export interface TextCorpusOptions {
   topBigrams?: number;
   topWordCorrelations?: number;
   excludeStopWords?: boolean;
+  ignoreWords?: string[];
 }
 
 export interface RowWordCloudOptions {
@@ -96,6 +101,7 @@ export interface RowWordCloudOptions {
   minLength?: number;
   topN?: number;
   excludeStopWords?: boolean;
+  ignoreWords?: string[];
 }
 
 const SOURCE_FILE = "_Fichier";
@@ -144,18 +150,27 @@ export function getColumnAvailability(tables: ImportedTable[]): ColumnAvailabili
 
 export function filterTables(tables: ImportedTable[], rules: FilterRule[]) {
   const activeRules = rules.filter((rule) => rule.column && splitTerms(rule.terms).length > 0);
+  const excludeRules = activeRules.filter((rule) => (rule.action ?? "exclure") === "exclure");
+  const includeRules = activeRules.filter((rule) => rule.action === "extraire");
+  const hasInclude = includeRules.length > 0;
   const allColumns = Array.from(new Set(tables.flatMap((table) => table.columns)));
   const keptRows: DataRow[] = [];
   let removedCount = 0;
 
   for (const table of tables) {
     for (const row of table.rows) {
-      const shouldRemove = activeRules.some((rule) => {
+      const excluded = excludeRules.some((rule) => {
         if (!table.columns.includes(rule.column)) return false;
         return matchesRule(row[rule.column], rule);
       });
+      const included =
+        !hasInclude ||
+        includeRules.some((rule) => {
+          if (!table.columns.includes(rule.column)) return false;
+          return matchesRule(row[rule.column], rule);
+        });
 
-      if (shouldRemove) {
+      if (excluded || !included) {
         removedCount += 1;
       } else {
         const mergedRow: DataRow = { [SOURCE_FILE]: table.fileName, [SOURCE_SHEET]: table.sheetName };
@@ -236,6 +251,7 @@ export function analyzeTextCorpus(
   const topBigrams = Math.max(1, options?.topBigrams ?? 25);
   const topWordCorrelations = Math.max(1, options?.topWordCorrelations ?? 20);
   const excludeStopWords = options?.excludeStopWords ?? true;
+  const ignoreWords = buildIgnoreSet(options?.ignoreWords, caseSensitive);
 
   const wordCounts = new Map<string, number>();
   const bigramCounts = new Map<string, number>();
@@ -280,6 +296,7 @@ export function analyzeTextCorpus(
           caseSensitive,
           minLength,
           excludeStopWords,
+          ignoreWords,
         });
 
         if (!tokens.length) continue;
@@ -418,6 +435,7 @@ export function analyzeRowsWordCloud(
   const minLength = Math.max(1, options?.minLength ?? 3);
   const topN = Math.max(1, options?.topN ?? 40);
   const excludeStopWords = options?.excludeStopWords ?? true;
+  const ignoreWords = buildIgnoreSet(options?.ignoreWords, caseSensitive);
 
   const counts = new Map<string, number>();
   for (const row of rows) {
@@ -431,6 +449,7 @@ export function analyzeRowsWordCloud(
         caseSensitive,
         minLength,
         excludeStopWords,
+        ignoreWords,
       });
 
       for (const token of tokens) {
@@ -484,16 +503,33 @@ function matchesTerm(
 
 function tokenize(
   input: string,
-  options: { caseSensitive: boolean; minLength: number; excludeStopWords: boolean },
+  options: {
+    caseSensitive: boolean;
+    minLength: number;
+    excludeStopWords: boolean;
+    ignoreWords?: Set<string>;
+  },
 ) {
   const normalize = (text: string) =>
     options.caseSensitive ? text : text.toLocaleLowerCase("fr");
 
   return (normalize(input).match(/[\p{L}\p{N}]+/gu) ?? []).filter((token) => {
     if (token.length < options.minLength) return false;
+    if (options.ignoreWords?.has(token)) return false;
     if (!options.excludeStopWords) return true;
     return !FRENCH_STOP_WORDS.has(token);
   });
+}
+
+function buildIgnoreSet(ignoreWords: string[] | undefined, caseSensitive: boolean) {
+  if (!ignoreWords?.length) return undefined;
+  const normalize = (text: string) => (caseSensitive ? text : text.toLocaleLowerCase("fr"));
+  const set = new Set<string>();
+  for (const word of ignoreWords) {
+    const trimmed = normalize(word.trim());
+    if (trimmed) set.add(trimmed);
+  }
+  return set.size ? set : undefined;
 }
 
 function toTopWordStats(counts: Map<string, number>, topN: number): WordStat[] {
