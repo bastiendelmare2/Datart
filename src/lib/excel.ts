@@ -12,6 +12,7 @@ export interface ImportedTable {
 }
 
 export type FilterAction = "exclure" | "extraire";
+export type MatchType = "mot" | "expression" | "exact" | "vide";
 
 export interface FilterRule {
   id: string;
@@ -21,6 +22,7 @@ export interface FilterRule {
   caseSensitive: boolean;
   matchDerivatives: boolean;
   action: FilterAction;
+  matchType: MatchType;
 }
 
 export interface ColumnAvailability {
@@ -149,7 +151,7 @@ export function getColumnAvailability(tables: ImportedTable[]): ColumnAvailabili
 }
 
 export function filterTables(tables: ImportedTable[], rules: FilterRule[]) {
-  const activeRules = rules.filter((rule) => rule.column && splitTerms(rule.terms).length > 0);
+  const activeRules = rules.filter((rule) => rule.column && ((rule.matchType ?? "mot") === "vide" || splitTerms(rule.terms).length > 0));
   const excludeRules = activeRules.filter((rule) => (rule.action ?? "exclure") === "exclure");
   const includeRules = activeRules.filter((rule) => rule.action === "extraire");
   const hasInclude = includeRules.length > 0;
@@ -213,6 +215,7 @@ export function applyColumnEdits(tables: ImportedTable[], edits: ColumnEdits): I
 
 export function getRuleTermImpacts(tables: ImportedTable[], rule: FilterRule): TermImpact[] {
   if (!rule.column) return [];
+  const matchType = rule.matchType ?? "mot";
   const terms = splitTerms(rule.terms);
   if (!terms.length) return [];
 
@@ -221,7 +224,7 @@ export function getRuleTermImpacts(tables: ImportedTable[], rule: FilterRule): T
     for (const table of tables) {
       if (!table.columns.includes(rule.column)) continue;
       for (const row of table.rows) {
-        if (matchesTerm(row[rule.column], term, rule.caseSensitive, rule.matchDerivatives)) {
+        if (matchesTerm(row[rule.column], term, rule.caseSensitive, rule.matchDerivatives, matchType)) {
           removedCount += 1;
         }
       }
@@ -473,9 +476,13 @@ export function splitTerms(terms: string) {
 }
 
 function matchesRule(value: CellValue | undefined, rule: FilterRule) {
+  const matchType = rule.matchType ?? "mot";
+  if (matchType === "vide") {
+    return value === null || value === undefined || String(value).trim() === "";
+  }
   if (value === null || value === undefined) return false;
   return splitTerms(rule.terms).some((term) =>
-    matchesTerm(value, term, rule.caseSensitive, rule.matchDerivatives),
+    matchesTerm(value, term, rule.caseSensitive, rule.matchDerivatives, matchType),
   );
 }
 
@@ -489,13 +496,18 @@ function matchesTerm(
   rawTerm: string,
   caseSensitive: boolean,
   matchDerivatives: boolean,
+  matchType: MatchType = "mot",
 ) {
   if (value === null || value === undefined) return false;
   const normalize = (text: string) => (caseSensitive ? text : text.toLocaleLowerCase("fr"));
-  const tokenizedValue = normalize(String(value)).match(/[\p{L}\p{N}]+/gu) ?? [];
   const term = normalize(rawTerm.trim());
   if (!term) return false;
+  const normalizedValue = normalize(String(value));
 
+  if (matchType === "expression") return normalizedValue.includes(term);
+  if (matchType === "exact") return normalizedValue.trim() === term;
+
+  const tokenizedValue = normalizedValue.match(/[\p{L}\p{N}]+/gu) ?? [];
   return matchDerivatives
     ? tokenizedValue.some((token) => token.startsWith(term))
     : tokenizedValue.some((token) => token === term);

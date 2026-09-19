@@ -267,6 +267,9 @@ select:focus, textarea:focus, input[type="number"]:focus, input[type="text"]:foc
 .rules-toolbar label { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 10px; font-weight: 700; min-width: 200px; }
 .rule-name-input { max-width: 260px; font-weight: 700; }
 .rule-action { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 10px; font-weight: 700; margin-bottom: 12px; }
+.rule-filter-config { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.rule-filter-config .rule-action { margin-bottom: 12px; }
+.rule-hint { margin-top: 10px; padding: 9px 10px; border: 1px dashed var(--line); background: color-mix(in srgb, var(--white) 85%, var(--accent-4)); color: var(--muted); font-size: 11px; }
 .ignored-words { margin: 14px 22px 0; }
 .toggles { display: flex; gap: 22px; margin-top: 12px; }
 .toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; }
@@ -355,6 +358,7 @@ main[data-theme="night"] .word-cloud span { text-shadow: none; }
   .content { width: calc(100% - 24px); padding: 24px 0 44px; }
   h1 { font-size: 28px; }
   .rule-fields { grid-template-columns: 1fr; }
+  .rule-filter-config { grid-template-columns: 1fr; }
   .column-row { grid-template-columns: 1fr; }
   .term-input-row, .config-row { grid-template-columns: 1fr; }
   .analysis-actions { align-items: stretch; flex-direction: column; }

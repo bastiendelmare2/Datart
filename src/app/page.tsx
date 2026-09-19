@@ -48,6 +48,7 @@ import {
   getRuleTermImpacts,
   ImportedTable,
   importWorkbook,
+  MatchType,
   splitTerms,
   TermImpact,
 } from "@/lib/excel";
@@ -58,7 +59,7 @@ type DirectoryEntry = FileSystemDirectoryEntry & {
   createReader: () => { readEntries: (callback: (entries: FileSystemEntry[]) => void) => void };
 };
 
-type AppMode = "tri" | "extraction" | "analyse";
+type AppMode = "tri" | "analyse";
 type ThemeMode = "day" | "night";
 type TermSort = "alpha" | "impact";
 
@@ -103,6 +104,7 @@ const createRule = (action: FilterAction = "exclure"): FilterRule => ({
   caseSensitive: false,
   matchDerivatives: true,
   action,
+  matchType: "mot",
 });
 
 export default function Home() {
@@ -111,7 +113,6 @@ export default function Home() {
   const [sourceTables, setSourceTables] = useState<ImportedTable[]>([]);
   const [columnEdits, setColumnEdits] = useState<ColumnEdits>({});
   const [rules, setRules] = useState<FilterRule[]>([createRule()]);
-  const [extractionRules, setExtractionRules] = useState<FilterRule[]>([createRule("extraire")]);
   const [ignoredWords, setIgnoredWords] = useState<string[]>([]);
   const [termSort, setTermSort] = useState<TermSort>("alpha");
   const [isImporting, setIsImporting] = useState(false);
@@ -194,10 +195,6 @@ export default function Home() {
   );
 
   const result = useMemo(() => filterTables(triTables, rules), [triTables, rules]);
-  const extractionResult = useMemo(
-    () => filterTables(triTables, extractionRules),
-    [triTables, extractionRules],
-  );
 
   const analysis = useMemo(() => {
     if (!analysisRequest) return null;
@@ -238,22 +235,6 @@ export default function Home() {
         ignoreWords: ignoredWords,
       }),
     [result.rows, postFilterColumns, ignoredWords],
-  );
-
-  const extractionColumns = useMemo(
-    () => Array.from(new Set(extractionRules.map((rule) => rule.column).filter(Boolean))),
-    [extractionRules],
-  );
-
-  const extractionWords = useMemo(
-    () =>
-      analyzeRowsWordCloud(extractionResult.rows, extractionColumns, {
-        minLength: 3,
-        topN: 45,
-        excludeStopWords: true,
-        ignoreWords: ignoredWords,
-      }),
-    [extractionResult.rows, extractionColumns, ignoredWords],
   );
 
   const sourceColumns = useMemo(
@@ -358,14 +339,6 @@ export default function Home() {
       ),
     );
 
-    setExtractionRules((current) =>
-      current.map((rule) =>
-        rule.column === sourceColumn
-          ? { ...rule, column: trimmed || sourceColumn }
-          : rule,
-      ),
-    );
-
     setDataRevision((current) => current + 1);
   }
 
@@ -456,7 +429,6 @@ export default function Home() {
     setSourceTables([]);
     setColumnEdits({});
     setRules([createRule()]);
-    setExtractionRules([createRule("extraire")]);
     setAnalysisColumns([]);
     setAnalysisColumnCandidate("");
     setAnalysisRequest(null);
@@ -544,23 +516,16 @@ export default function Home() {
 
       <div className="mode-switch" role="tablist" aria-label="Mode de travail">
         <button role="tab" aria-selected={mode === "tri"} className={mode === "tri" ? "active" : ""} onClick={() => setMode("tri")}>Mode Tri / Nettoyage</button>
-        <button role="tab" aria-selected={mode === "extraction"} className={mode === "extraction" ? "active" : ""} onClick={() => setMode("extraction")}>Mode Extraction</button>
         <button role="tab" aria-selected={mode === "analyse"} className={mode === "analyse" ? "active" : ""} onClick={() => setMode("analyse")}>Mode Analyse Textuelle</button>
       </div>
 
       <div className="workspace">
         <aside className="steps" aria-label="Progression">
-          <p className="eyebrow">{mode === "analyse" ? "ANALYSE" : mode === "extraction" ? "EXTRACTION" : "TRAITEMENT"}</p>
+          <p className="eyebrow">{mode === "analyse" ? "ANALYSE" : "TRAITEMENT"}</p>
           <Step number="01" title="Importer" active={!sourceTables.length} done={sourceTables.length > 0} />
           {mode === "tri" && (
             <>
               <Step number="02" title="Filtrer" active={sourceTables.length > 0} done={Boolean(rules.some((r) => r.column && splitTerms(r.terms).length))} />
-              <Step number="03" title="Exporter" active={sourceTables.length > 0} done={false} />
-            </>
-          )}
-          {mode === "extraction" && (
-            <>
-              <Step number="02" title="Extraire" active={sourceTables.length > 0} done={Boolean(extractionRules.some((r) => r.column && splitTerms(r.terms).length))} />
               <Step number="03" title="Exporter" active={sourceTables.length > 0} done={false} />
             </>
           )}
@@ -579,8 +544,8 @@ export default function Home() {
         <section className="content">
           <div className="title-row">
             <div>
-              <p className="eyebrow">{mode === "analyse" ? "EXPLORATION" : mode === "extraction" ? "EXTRACTION CIBLÉE" : "NOUVEAU TRAITEMENT"}</p>
-              <h1>{mode === "analyse" ? "Analyser les textes" : mode === "extraction" ? "Extraire une base" : "Préparer les données"}</h1>
+              <p className="eyebrow">{mode === "analyse" ? "EXPLORATION" : "NOUVEAU TRAITEMENT"}</p>
+              <h1>{mode === "analyse" ? "Analyser les textes" : "Préparer les données"}</h1>
             </div>
             {sourceTables.length > 0 && <button className="text-button" onClick={resetAll}>Tout effacer</button>}
           </div>
@@ -654,7 +619,7 @@ export default function Home() {
             )}
           </section>
 
-          {(mode === "tri" || mode === "extraction") && (
+          {mode === "tri" && (
             <section className={`panel columns-section ${!sourceTables.length ? "disabled" : ""}`}>
               <details className="columns-dropdown" open>
                 <summary>
@@ -715,10 +680,10 @@ export default function Home() {
             </section>
           )}
 
-          {mode === "tri" ? (
+          {mode === "tri" && (
             <>
               <section className={`panel filter-section ${!triTables.length ? "disabled" : ""}`}>
-                <div className="section-heading"><span>2</span><div><h2>Règles de filtrage</h2><p>Les lignes correspondantes seront supprimées</p></div></div>
+                <div className="section-heading"><span>2</span><div><h2>Règles de filtrage</h2><p>Choisissez pour chaque règle le type de filtre à appliquer</p></div></div>
 
                 {triTables.length > 0 && missingColumns.length > 0 && (
                   <button className="warning-banner" onClick={() => setShowDifferences(true)}>
@@ -763,8 +728,6 @@ export default function Home() {
                   availability={triAvailability}
                   termSort={termSort}
                   setTermSort={setTermSort}
-                  showActionSelector
-                  addAction="exclure"
                 />
               </section>
 
@@ -786,72 +749,6 @@ export default function Home() {
                   <div className="word-cloud fancy-cloud" aria-label="Nuage de mots post-filtre">
                     {postFilterWords.map((item, index) => {
                       const max = postFilterWords[0]?.count ?? 1;
-                      const ratio = item.count / max;
-                      const size = 12 + ratio * 30;
-                      const rotate = (index % 2 === 0 ? 1 : -1) * (index % 5);
-                      return (
-                        <span
-                          key={item.word}
-                          style={{
-                            fontSize: `${size.toFixed(0)}px`,
-                            opacity: 0.54 + ratio * 0.46,
-                            transform: `rotate(${rotate}deg)`,
-                          }}
-                          title={`${item.word} (${item.count})`}
-                        >
-                          {item.word}
-                        </span>
-                      );
-                    })}
-                  </div>
-                )}
-              </section>
-            </>
-          )}
-
-          {mode === "extraction" && (
-            <>
-              <section className={`panel filter-section ${!triTables.length ? "disabled" : ""}`}>
-                <div className="section-heading"><span>2</span><div><h2>Règles d’extraction</h2><p>Seules les lignes correspondantes seront conservées dans la base extraite</p></div></div>
-
-                {triTables.length > 0 && missingColumns.length > 0 && (
-                  <button className="warning-banner" onClick={() => setShowDifferences(true)}>
-                    <AlertTriangle size={18} />
-                    <span><strong>{missingColumns.length} variable{missingColumns.length > 1 ? "s" : ""} non commune{missingColumns.length > 1 ? "s" : ""}</strong><small>Consulter le détail des écarts entre feuilles</small></span>
-                    <ChevronRight size={18} />
-                  </button>
-                )}
-
-                <RulesEditor
-                  rules={extractionRules}
-                  setRules={setExtractionRules}
-                  tables={triTables}
-                  availability={triAvailability}
-                  termSort={termSort}
-                  setTermSort={setTermSort}
-                  showActionSelector={false}
-                  addAction="extraire"
-                />
-              </section>
-
-              <section className={`export-band ${!triTables.length ? "disabled" : ""}`}>
-                <div>
-                  <p className="eyebrow">BASE EXTRAITE</p>
-                  <strong>{extractionResult.rows.length.toLocaleString("fr-FR")} lignes extraites</strong>
-                  <span>sur {extractionResult.totalCount.toLocaleString("fr-FR")} · {sourceFileNames.length} fichier{sourceFileNames.length > 1 ? "s" : ""}</span>
-                </div>
-                <button className="export-button" disabled={!triTables.length || extractionResult.rows.length === 0} onClick={() => exportRows(extractionResult.rows, "base_extraite.xlsx")}><Download size={19} /> Télécharger la base extraite .xlsx</button>
-              </section>
-
-              <section className={`panel post-filter-section ${!triTables.length ? "disabled" : ""}`}>
-                <div className="section-heading"><span>3</span><div><h2>Mots de la base extraite</h2><p>Nuage des variables ciblées par vos règles d’extraction</p></div></div>
-                <IgnoredWordsEditor words={ignoredWords} setWords={setIgnoredWords} />
-                {extractionColumns.length === 0 ? (
-                  <p className="analysis-empty">Ajoutez au moins une règle avec une variable pour afficher ce nuage.</p>
-                ) : (
-                  <div className="word-cloud fancy-cloud" aria-label="Nuage de mots de la base extraite">
-                    {extractionWords.map((item, index) => {
-                      const max = extractionWords[0]?.count ?? 1;
                       const ratio = item.count / max;
                       const size = 12 + ratio * 30;
                       const rotate = (index % 2 === 0 ? 1 : -1) * (index % 5);
@@ -1083,8 +980,6 @@ function RulesEditor({
   availability,
   termSort,
   setTermSort,
-  showActionSelector,
-  addAction,
 }: {
   rules: FilterRule[];
   setRules: Dispatch<SetStateAction<FilterRule[]>>;
@@ -1092,8 +987,6 @@ function RulesEditor({
   availability: ColumnAvailability[];
   termSort: TermSort;
   setTermSort: Dispatch<SetStateAction<TermSort>>;
-  showActionSelector: boolean;
-  addAction: FilterAction;
 }) {
   const [pendingTerms, setPendingTerms] = useState<Record<string, string>>({});
 
@@ -1183,15 +1076,25 @@ function RulesEditor({
                 {rules.length > 1 && <button className="icon-button" title="Supprimer la règle" onClick={() => setRules((current) => current.filter((item) => item.id !== rule.id))}><X size={17} /></button>}
               </div>
 
-              {showActionSelector && (
+              <div className="rule-filter-config">
                 <label className="rule-action">
-                  Action de la règle
-                  <select value={rule.action} onChange={(event) => updateRule(rule.id, { action: event.target.value as FilterAction })}>
-                    <option value="exclure">Supprimer les lignes correspondantes</option>
-                    <option value="extraire">Extraire (garder) les lignes correspondantes</option>
+                  Type de filtre
+                  <select value={rule.matchType} onChange={(event) => updateRule(rule.id, { matchType: event.target.value as MatchType })}>
+                    <option value="mot">Contient le mot</option>
+                    <option value="expression">Contient l’expression</option>
+                    <option value="exact">Correspond exactement</option>
+                    <option value="vide">Cellule vide</option>
                   </select>
                 </label>
-              )}
+
+                <label className="rule-action">
+                  Que faire des lignes correspondantes
+                  <select value={rule.action} onChange={(event) => updateRule(rule.id, { action: event.target.value as FilterAction })}>
+                    <option value="exclure">Supprimer ces lignes</option>
+                    <option value="extraire">Garder uniquement ces lignes</option>
+                  </select>
+                </label>
+              </div>
 
               <div className="rule-fields">
                 <label>
@@ -1206,19 +1109,25 @@ function RulesEditor({
                   </select>
                 </label>
 
-                <label>
-                  {addAction === "extraire" ? "Ajouter un mot-clé à extraire" : "Ajouter un mot-clé à supprimer"}
-                  <div className="term-input-row">
-                    <input
-                      type="text"
-                      value={pendingTerms[rule.id] ?? ""}
-                      placeholder="ex. paysage"
-                      onChange={(event) => setPendingTerms((current) => ({ ...current, [rule.id]: event.target.value }))}
-                      onKeyDown={(event) => onRuleTermKeyDown(event, rule.id)}
-                    />
-                    <button type="button" onClick={() => addRuleTerm(rule.id)}><Plus size={14} /> Ajouter</button>
-                  </div>
-                </label>
+                {rule.matchType !== "vide" && (
+                  <label>
+                    {rule.matchType === "expression"
+                      ? "Ajouter une expression"
+                      : rule.matchType === "exact"
+                        ? "Ajouter une valeur exacte"
+                        : "Ajouter un mot-clé"}
+                    <div className="term-input-row">
+                      <input
+                        type="text"
+                        value={pendingTerms[rule.id] ?? ""}
+                        placeholder="ex. paysage"
+                        onChange={(event) => setPendingTerms((current) => ({ ...current, [rule.id]: event.target.value }))}
+                        onKeyDown={(event) => onRuleTermKeyDown(event, rule.id)}
+                      />
+                      <button type="button" onClick={() => addRuleTerm(rule.id)}><Plus size={14} /> Ajouter</button>
+                    </div>
+                  </label>
+                )}
               </div>
 
               {rule.column && (
@@ -1230,27 +1139,35 @@ function RulesEditor({
                 </div>
               )}
 
-              <div className="term-chips">
-                {displayTerms.length === 0 && <span className="chip-empty">Aucun mot ajouté pour l’instant.</span>}
-                {displayTerms.map(({ term, originalIndex, removedCount }) => (
-                  <button key={`${term}-${originalIndex}`} className="term-chip" onClick={() => removeRuleTerm(rule.id, originalIndex)} title="Retirer ce mot">
-                    <span>{term}</span>
-                    <small>{removedCount.toLocaleString("fr-FR")} ligne{removedCount > 1 ? "s" : ""}</small>
-                    <X size={13} />
-                  </button>
-                ))}
-              </div>
+              {rule.matchType === "vide" ? (
+                <p className="rule-hint">Cette règle cible les lignes dont la variable est vide — aucun mot-clé n’est nécessaire.</p>
+              ) : (
+                <div className="term-chips">
+                  {displayTerms.length === 0 && <span className="chip-empty">Aucun mot ajouté pour l’instant.</span>}
+                  {displayTerms.map(({ term, originalIndex, removedCount }) => (
+                    <button key={`${term}-${originalIndex}`} className="term-chip" onClick={() => removeRuleTerm(rule.id, originalIndex)} title="Retirer ce mot">
+                      <span>{term}</span>
+                      <small>{removedCount.toLocaleString("fr-FR")} ligne{removedCount > 1 ? "s" : ""}</small>
+                      <X size={13} />
+                    </button>
+                  ))}
+                </div>
+              )}
 
-              <div className="toggles">
-                <Toggle label="Ignorer la casse" checked={!rule.caseSensitive} onChange={(checked) => updateRule(rule.id, { caseSensitive: !checked })} />
-                <Toggle label="Inclure les mots dérivés" checked={rule.matchDerivatives} onChange={(checked) => updateRule(rule.id, { matchDerivatives: checked })} />
-              </div>
+              {rule.matchType !== "vide" && (
+                <div className="toggles">
+                  <Toggle label="Ignorer la casse" checked={!rule.caseSensitive} onChange={(checked) => updateRule(rule.id, { caseSensitive: !checked })} />
+                  {rule.matchType === "mot" && (
+                    <Toggle label="Inclure les mots dérivés" checked={rule.matchDerivatives} onChange={(checked) => updateRule(rule.id, { matchDerivatives: checked })} />
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
       </div>
 
-      <button className="add-rule" disabled={disabled} onClick={() => setRules((current) => [...current, createRule(addAction)])}><Plus size={17} /> Ajouter une règle</button>
+      <button className="add-rule" disabled={disabled} onClick={() => setRules((current) => [...current, createRule()])}><Plus size={17} /> Ajouter une règle</button>
     </>
   );
 }
